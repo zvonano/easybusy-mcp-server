@@ -164,13 +164,19 @@ async function handleToolCall(name, args) {
 }
 
 // =============================
-// HTTP + WEBSOCKET SERVER
+// HTTP + WEBSOCKET MCP SERVER
 // =============================
 const server = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
-  } else {
+  }
+  else if (req.url === '/mcp') {
+    // REQUIRED by OpenAI Agent Builder
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'mcp-ready' }));
+  }
+  else {
     res.writeHead(404);
     res.end();
   }
@@ -184,13 +190,11 @@ wss.on('connection', ws => {
     try {
       data = JSON.parse(message.toString());
     } catch (e) {
-      ws.send(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: null,
-          error: { code: -32700, message: 'Invalid JSON' }
-        })
-      );
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Invalid JSON' }
+      }));
       return;
     }
 
@@ -198,47 +202,32 @@ wss.on('connection', ws => {
 
     try {
       if (method === 'tools/list') {
-        ws.send(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id,
-            result: { tools, nextCursor: null }
-          })
-        );
+        ws.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          result: { tools, nextCursor: null }
+        }));
         return;
       }
 
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
         const result = await handleToolCall(name, args || {});
-        ws.send(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id,
-            result
-          })
-        );
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id, result }));
         return;
       }
 
-      ws.send(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id,
-          error: { code: -32601, message: 'Unknown method' }
-        })
-      );
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: 'Unknown method' }
+      }));
     } catch (err) {
-      ws.send(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: -32000,
-            message: err.message || 'Internal MCP error'
-          }
-        })
-      );
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32000, message: err.message || 'Internal MCP error' }
+      }));
     }
   });
 });
