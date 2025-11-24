@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws';
 // =============================
 // CONFIG
 // =============================
+const PORT = process.env.PORT || 10000;
 const EASYBUSY_BASE_URL =
   process.env.EASYBUSY_BASE_URL || 'https://api-b2b.easybusy.software';
 const EASYBUSY_API_KEY = process.env.EASYBUSY_API_KEY;
