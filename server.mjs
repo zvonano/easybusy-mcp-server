@@ -22,11 +22,9 @@ async function easybusyFetch(path, { method = 'GET', query, body } = {}) {
   const url = new URL(path, EASYBUSY_BASE_URL);
 
   if (query) {
-    Object.entries(query).forEach(([k, v]) => {
-      if (v !== undefined && v !== null) {
-        url.searchParams.set(k, String(v));
-      }
-    });
+    for (const [k, v] of Object.entries(query)) {
+      if (v != null) url.searchParams.set(k, v);
+    }
   }
 
   const res = await fetch(url.toString(), {
@@ -38,19 +36,13 @@ async function easybusyFetch(path, { method = 'GET', query, body } = {}) {
     body: body ? JSON.stringify(body) : undefined
   });
 
-  const text = await res.text();
+  const txt = await res.text();
   let json;
-
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = text;
-  }
+  try { json = txt ? JSON.parse(txt) : null; }
+  catch { json = txt; }
 
   if (!res.ok) {
-    throw new Error(
-      `EasyBusy ${method} ${url.pathname} failed (${res.status}): ${text}`
-    );
+    throw new Error(`EasyBusy ${method} ${url.pathname} failed (${res.status}): ${txt}`);
   }
 
   return json;
@@ -121,21 +113,21 @@ const tools = [
 async function handleToolCall(name, args) {
   switch (name) {
     case 'easybusy_company_features':
-      return await easybusyFetch('/v2/company/features');
+      return easybusyFetch('/v2/company/features');
 
     case 'easybusy_company_languages':
-      return await easybusyFetch('/v2/company/languages');
+      return easybusyFetch('/v2/company/languages');
 
     case 'easybusy_bookable_services':
-      return await easybusyFetch('/v2/simple-booking/bookable-services', {
+      return easybusyFetch('/v2/simple-booking/bookable-services', {
         query: { languageCode: args.languageCode }
       });
 
     case 'easybusy_bookable_doctors':
-      return await easybusyFetch('/v2/simple-booking/bookable-doctors');
+      return easybusyFetch('/v2/simple-booking/bookable-doctors');
 
     case 'easybusy_available_slots':
-      return await easybusyFetch('/v2/simple-booking/available-slots', {
+      return easybusyFetch('/v2/simple-booking/available-slots', {
         query: {
           languageCode: args.languageCode,
           from: args.from,
@@ -146,17 +138,14 @@ async function handleToolCall(name, args) {
       });
 
     case 'easybusy_request_slot':
-      return await easybusyFetch(
-        `/v2/simple-booking/request-slot/${args.slotId}`,
-        {
-          method: 'POST',
-          body: {
-            serviceId: args.serviceId,
-            message: args.message ?? '',
-            patientInfo: args.patientInfo
-          }
+      return easybusyFetch(`/v2/simple-booking/request-slot/${args.slotId}`, {
+        method: 'POST',
+        body: {
+          serviceId: args.serviceId,
+          message: args.message ?? '',
+          patientInfo: args.patientInfo
         }
-      );
+      });
 
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -164,15 +153,15 @@ async function handleToolCall(name, args) {
 }
 
 // =============================
-// HTTP + WEBSOCKET SERVER
+// HTTP SERVER (REQUIRED BY OPENAI UI!)
 // =============================
 const server = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
-  } 
+  }
   else if (req.url === '/mcp') {
-    // ❗ Ovo je ključ: OpenAI UI zahtijeva 200 OK HEAD/GET prije nego prihvati WebSocket.
+    // UI MUST GET 200 OK or it won't start WS
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ready', mcp: true }));
   }
@@ -182,15 +171,17 @@ const server = http.createServer((req, res) => {
   }
 });
 
+// =============================
+// WEBSOCKET SERVER (REAL MCP)
+// =============================
 const wss = new WebSocketServer({ server, path: '/mcp' });
 
-wss.on('connection', ws => {
-  ws.on('message', async message => {
-    let data;
-    try {
-      data = JSON.parse(message.toString());
-    } catch (e) {
-      ws.send(JSON.stringify({
+wss.on('connection', socket => {
+  socket.on('message', async raw => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); }
+    catch {
+      socket.send(JSON.stringify({
         jsonrpc: '2.0',
         id: null,
         error: { code: -32700, message: 'Invalid JSON' }
@@ -198,11 +189,11 @@ wss.on('connection', ws => {
       return;
     }
 
-    const { id, method, params } = data;
+    const { id, method, params } = msg;
 
     try {
       if (method === 'tools/list') {
-        ws.send(JSON.stringify({
+        socket.send(JSON.stringify({
           jsonrpc: '2.0',
           id,
           result: { tools, nextCursor: null }
@@ -213,24 +204,21 @@ wss.on('connection', ws => {
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
         const result = await handleToolCall(name, args || {});
-        ws.send(JSON.stringify({
-          jsonrpc: '2.0',
-          id,
-          result
-        }));
+        socket.send(JSON.stringify({ jsonrpc: '2.0', id, result }));
         return;
       }
 
-      ws.send(JSON.stringify({
+      socket.send(JSON.stringify({
         jsonrpc: '2.0',
         id,
         error: { code: -32601, message: 'Unknown method' }
       }));
-    } catch (err) {
-      ws.send(JSON.stringify({
+    }
+    catch (err) {
+      socket.send(JSON.stringify({
         jsonrpc: '2.0',
         id,
-        error: { code: -32000, message: err.message || 'Internal MCP error' }
+        error: { code: -32000, message: err.message }
       }));
     }
   });
