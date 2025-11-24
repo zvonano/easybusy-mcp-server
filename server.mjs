@@ -167,25 +167,21 @@ async function handleToolCall(name, args) {
 // HTTP + WEBSOCKET SERVER
 // =============================
 const server = http.createServer((req, res) => {
-  // Health check
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
-    return;
-  }
-
-  // MCP UI EXPECTS THIS!!!
-  if (req.url === '/mcp' && req.method === 'GET') {
+  } 
+  else if (req.url === '/mcp') {
+    // ❗ Ovo je ključ: OpenAI UI zahtijeva 200 OK HEAD/GET prije nego prihvati WebSocket.
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ready', mcp: true }));
-    return;
   }
-
-  res.writeHead(404);
-  res.end();
+  else {
+    res.writeHead(404);
+    res.end();
+  }
 });
 
-// WebSocket endpoint
 const wss = new WebSocketServer({ server, path: '/mcp' });
 
 wss.on('connection', ws => {
@@ -193,14 +189,12 @@ wss.on('connection', ws => {
     let data;
     try {
       data = JSON.parse(message.toString());
-    } catch {
-      ws.send(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id: null,
-          error: { code: -32700, message: 'Invalid JSON' }
-        })
-      );
+    } catch (e) {
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Invalid JSON' }
+      }));
       return;
     }
 
@@ -208,47 +202,36 @@ wss.on('connection', ws => {
 
     try {
       if (method === 'tools/list') {
-        ws.send(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id,
-            result: { tools, nextCursor: null }
-          })
-        );
+        ws.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          result: { tools, nextCursor: null }
+        }));
         return;
       }
 
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
         const result = await handleToolCall(name, args || {});
-        ws.send(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id,
-            result
-          })
-        );
+        ws.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          result
+        }));
         return;
       }
 
-      ws.send(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id,
-          error: { code: -32601, message: 'Unknown method' }
-        })
-      );
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: 'Unknown method' }
+      }));
     } catch (err) {
-      ws.send(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          id,
-          error: {
-            code: -32000,
-            message: err.message || 'Internal MCP error'
-          }
-        })
-      );
+      ws.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32000, message: err.message || 'Internal MCP error' }
+      }));
     }
   });
 });
