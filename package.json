@@ -1,0 +1,17 @@
+{
+  "name": "easybusy-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server koji wrapa EasyBusy simple booking API",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
